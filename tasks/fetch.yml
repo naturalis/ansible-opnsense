@@ -4,5 +4,4 @@
     src: /conf/config.xml
     dest: "{{ local_config_path }}"
     flat: yes
-    backup: yes
 ...
