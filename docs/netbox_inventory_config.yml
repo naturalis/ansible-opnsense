@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2021 Robin Schneider <ypid@riseup.net>
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Config that works together with ../templates/conf/config_netbox.xml.j2
+
+plugin: netbox.netbox.nb_inventory
+api_endpoint: https://netbox.example.net
+token: ...
+interfaces: True
+plurals: False
+strict: True
+config_context: True
+fetch_all: False
+
+# Not needed for now. The device name is the DNS name.
+# dns_name: True
+
+group_by:
+  - site
+  - role
+  - platform
+  - tag
+
+compose:
+  # It is assumed that your sites names match the DNS subdomain used for the site.
+  site_name: site.name

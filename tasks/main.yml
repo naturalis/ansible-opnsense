@@ -8,20 +8,33 @@
   include: fetch.yml
   tags: fetch
 
+- name: template
+  template:
+    src: '{{ opnsense_template }}'
+    dest: '{{ local_config_path }}'
+    validate: 'xmllint --noout %s'
+  delegate_to: localhost
+  when: opnsense_mode == 'xml_template'
+  tags: template
+
 - name: dnsserver
   include: dnsserver.yml
+  when: opnsense_mode == 'xml_patch'
   tags: dnsserver
 
 - name: user
   include: user.yml
+  when: opnsense_mode == 'xml_patch'
   tags: user
   
 - name: group
   include: group.yml
+  when: opnsense_mode == 'xml_patch'
   tags: group
 
 - name: general
   include: general.yml
+  when: opnsense_mode == 'xml_patch'
   tags: general
 
 #- name: sysctl
@@ -30,68 +43,83 @@
 
 - name: authservers
   include: authservers.yml
+  when: opnsense_mode == 'xml_patch'
   tags: authservers
 
 - name: CAs
   include: ca.yml
+  when: opnsense_mode == 'xml_patch'
   tags: ca
 
 - name: VPN
   include: vpn.yml
+  when: opnsense_mode == 'xml_patch'
   tags: vpn
 
 - name: interfaces
   include: interfaces.yml
+  when: opnsense_mode == 'xml_patch'
   tags: interfaces
 
 - name: vlans
   include: vlans.yml
+  when: opnsense_mode == 'xml_patch' and opn_interfaces_vlan_parent_interface is defined
   tags: vlans
-  when: opn_interfaces_vlan_parent_interface is defined
 
 - name: bridges
   include: bridges.yml
+  when: opnsense_mode == 'xml_patch'
   tags: bridges
   
 - name: virtualip
   include: virtualip.yml
+  when: opnsense_mode == 'xml_patch'
   tags: virtualip
 
 - name: alias
   include: alias.yml
+  when: opnsense_mode == 'xml_patch'
   tags: alias
 
 - name: filter
   include: filter.yml
+  when: opnsense_mode == 'xml_patch'
   tags: filter
   
 - name: gateways
   include: gateways.yml
+  when: opnsense_mode == 'xml_patch'
   #when: prod | default([])
   tags: gateways 
 
 - name: hasync
   include: hasync.yml
+  when: opnsense_mode == 'xml_patch'
   tags: hasync
 
 - name: dhcpd
   include: dhcpd.yml
+  when: opnsense_mode == 'xml_patch'
   tags: dhcpd
 
 - name: syslog
   include: syslog.yml
+  when: opnsense_mode == 'xml_patch'
   tags: syslog
 
 - name: staticroutes
   include: staticroutes.yml
+  when: opnsense_mode == 'xml_patch'
   tags: staticroutes
 
 - name: nat
   include: nat.yml
+  when: opnsense_mode == 'xml_patch'
   tags: nat
 
 - name: laggs
   include: laggs.yml
+  when: opnsense_mode == 'xml_patch'
   tags: laggs
 
 - name: trim EOF
@@ -102,6 +130,7 @@
     line: ""
     path: "{{ local_config_path }}"
   changed_when: false
+  when: opnsense_mode == 'xml_patch'
   tags: trim
 
 - name: fix xml start tag
@@ -112,6 +141,7 @@
     insertbefore: BOF
     path: "{{ local_config_path }}"
   changed_when: false
+  when: opnsense_mode == 'xml_patch'
   tags: trim
 
 - name: copy
@@ -127,12 +157,31 @@
   shell: srm "{{ local_config_path }}"
   tags: clean
 
+  # Reload services last as that might kill the ssh connection.
 - name: reload
-  command: "{{ item }}"
+  command: "{{ item.command }}"
+  when: (item.when|bool)
   with_items:
-    - configctl filter sync
-    - configctl service reload all
-    - configctl webgui restart
-  when: config.changed
+    - command: configctl filter sync
+      when: '{{ config is changed }}'
+
+    - command: configctl webgui restart
+      when: '{{ config is changed }}'
+
+    - command: configctl service reload all
+      when: '{{ config is changed }}'
+
+    - command: configctl wireguard restart
+      when: '{{ config is changed and
+                lookup("xmlfile", local_config_path_fetch, xpath="opnsense/OPNsense/wireguard") !=
+                lookup("xmlfile", local_config_path, xpath="opnsense/OPNsense/wireguard") }}'
   tags: reload
+
+- name: copy
+  copy:
+    src: "{{ local_config_path }}"
+    dest: "{{ local_config_path_fetch }}"
+  register: config
+  delegate_to: localhost
+  tags: copy
 ...

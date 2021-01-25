@@ -1,6 +1,58 @@
+#jinja2: lstrip_blocks: "True", trim_blocks: "True"
+{# SPDX-FileCopyrightText: 2021 Robin Schneider <ypid@riseup.net>
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ #}
+{# Should this be defined in NetBox instead of deriving it here? #}
+{% set interface_name_to_opnsense_if_name_map = {} %}
+{% set interface_description_to_opnsense_if_name_map = {} %}
+{% set interface_role_to_opnsense_if_names_map = {} %}
+{% set vlans = [] %}
+{% for interface in interfaces|sort(attribute="id") %}
+  {% set interface_vlans = [] %}
+  {% for vlan in [interface.untagged_vlan] if vlan %}
+    {% set _ = vlan.update({'interface': interface, 'mode': 'untagged'}) %}
+    {% set _ = interface_vlans.append(vlan) %}
+  {% endfor %}
+  {% for vlan in interface.tagged_vlans if vlan %}
+    {% set _ = vlan.update({'interface': interface, 'mode': 'tagged'}) %}
+    {% set _ = interface_vlans.append(vlan) %}
+  {% endfor %}
+  {% set _ = vlans.extend(interface_vlans) %}
+  {% if interface_vlans and interface_vlans[0].name.lower() == "users" %}
+    {% set opnsense_if_name = "lan" %}
+  {% endif %}
+  {% if interface.description.lower() == "ext" %}
+    {% set opnsense_if_name = "wan" %}
+  {% endif %}
+  {% if opnsense_if_name is undefined or interface.name in interface_name_to_opnsense_if_name_map %}
+    {% set opnsense_if_name = "opt" + (interface.id|string) %}
+  {% endif %}
+  {% set _ = interface_name_to_opnsense_if_name_map.update({interface.name: opnsense_if_name}) %}
+  {% set _ = interface_description_to_opnsense_if_name_map.update({interface.description: opnsense_if_name}) %}
+  {% set _ = interface_role_to_opnsense_if_names_map.setdefault(interface.description.split('_')[0], []) %}
+  {% set _ = interface_role_to_opnsense_if_names_map[interface.description.split('_')[0]].append(opnsense_if_name) %}
+{% endfor %}
+{% macro print_rule_ansible_managed(descr='') %}
+{% if descr %}
+<descr>{{ descr }} Ansible managed.</descr>
+{% else %}
+<descr>Ansible managed.</descr>
+{% endif %}
+<updated>
+  <username>user@ansible-controller</username>
+  <time>1559503041.8803</time>
+  <description>OPNsense Ansible controller made changes</description>
+</updated>
+<created>
+  <username>user@ansible-controller</username>
+  <time>1559503041.8803</time>
+  <description>OPNsense Ansible controller made changes</description>
+</created>
+{%- endmacro %}
 <?xml version="1.0"?>
 <opnsense>
-  <theme>opnsense</theme>
+  {{ lookup("xmlfile", local_config_path_fetch, local_config_path_fetch, xpath="//opnsense/theme") }}
   <sysctl>
     <item>
       <descr>Increase UFS read-ahead speeds to match the state of hard drives and NCQ.</descr>
@@ -206,9 +258,17 @@
     </item>
   </sysctl>
   <system>
+    <serialspeed>115200</serialspeed>
+    <primaryconsole>serial</primaryconsole>
+    <secondaryconsole>video</secondaryconsole>
+    {% if not is_virtual %}
+    {# Password protect the console access on physical devices. #}
+    {# For VMs it does not make much sense. #}
+    <disableconsolemenu>1</disableconsolemenu>
+    {% endif %}
     <optimization>normal</optimization>
-    <hostname>OPNsense</hostname>
-    <domain>localdomain</domain>
+    <hostname>{{ inventory_hostname_short }}</hostname>
+    <domain>{{ site_name }}</domain>
     <dnsallowoverride>on</dnsallowoverride>
     <group>
       <name>admins</name>
@@ -218,29 +278,17 @@
       <member>0</member>
       <priv>page-all</priv>
     </group>
-    <user>
-      <name>root</name>
-      <descr>System Administrator</descr>
-      <scope>system</scope>
-      <groupname>admins</groupname>
-      <password>$2y$10$CWpKw8H/.PwF2kHcvh5bXuLC1rzq/N9FOOM7kAAnBS0.ksWOI/0bO</password>
-      <uid>0</uid>
-    </user>
+    {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/user") }}
     <nextuid>2000</nextuid>
     <nextgid>2000</nextgid>
-    <timezone>Etc/UTC</timezone>
+    <timezone>{{ ntp__timezone }}</timezone>
     <timeservers>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</timeservers>
     <webgui>
       <protocol>https</protocol>
-      <ssl-certref>60061767b5b36</ssl-certref>
+      {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/webgui/ssl-certref") }}
     </webgui>
     <disablenatreflection>yes</disablenatreflection>
     <usevirtualterminal>1</usevirtualterminal>
-    <disableconsolemenu/>
-    <disablevlanhwfilter>1</disablevlanhwfilter>
-    <disablechecksumoffloading>1</disablechecksumoffloading>
-    <disablesegmentationoffloading>1</disablesegmentationoffloading>
-    <disablelargereceiveoffloading>1</disablelargereceiveoffloading>
     <ipv6allow/>
     <powerd_ac_mode>hadp</powerd_ac_mode>
     <powerd_battery_mode>hadp</powerd_battery_mode>
@@ -248,7 +296,7 @@
     <bogons>
       <interval>monthly</interval>
     </bogons>
-    <backupcount>60</backupcount>
+    {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/backupcount") }}
     <crypto_hardware>aesni</crypto_hardware>
     <pf_share_forward>1</pf_share_forward>
     <lb_use_sticky>1</lb_use_sticky>
@@ -266,19 +314,34 @@
       </nextcloud>
     </backup>
     <language>en_US</language>
+    <firmware>
+      {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/firmware/plugins") }}
+    </firmware>
+    {% if [ansible_processor|d([])] | flatten | join("\n") | regex_search("AMD") %}
+    <thermal_hardware>amdtemp</thermal_hardware>
+    {% endif %}
   </system>
   <interfaces>
-    <wan>
-      <enable>1</enable>
-      <if>vtnet0</if>
+{% for interface in interfaces|sort(attribute="id") %}
+    <{{ interface_name_to_opnsense_if_name_map[interface.name] }}>
+      <if>{{ interface.name }}</if>
+      <descr>{{ interface.description }}</descr>
+      <enable>{{ 1 if interface.enabled else 0 }}</enable>
+{%     if interface.ip_addresses %}
+      <ipaddr>{{ interface.ip_addresses[0].address | ansible.netcommon.ipaddr('address') }}</ipaddr>
+      <subnet>{{ interface.ip_addresses[0].address | ansible.netcommon.ipaddr('prefix') }}</subnet>
+{%     elif interface.description.startswith("vpn_") %}
+{%     else %}
       <ipaddr>dhcp</ipaddr>
       <ipaddrv6>dhcp6</ipaddrv6>
-      <gateway/>
-      <blockbogons>on</blockbogons>
       <media/>
       <mediaopt/>
       <dhcp6-ia-pd-len>0</dhcp6-ia-pd-len>
-    </wan>
+      <gateway/>
+{%     endif %}
+      <blockbogons>1</blockbogons>
+    </{{ interface_name_to_opnsense_if_name_map[interface.name] }}>
+{% endfor %}
     <lo0>
       <internal_dynamic>1</internal_dynamic>
       <descr>Loopback</descr>
@@ -292,7 +355,38 @@
       <virtual>1</virtual>
     </lo0>
   </interfaces>
-  <dhcpd/>
+  <vlans>
+  {% for vlan in vlans|sort(attribute="vid") if vlan.mode == 'tagged' %}
+    <vlan>
+      <if>{{ vlan.interface.name.split('_')[0] }}</if>
+      <tag>{{ vlan.vid }}</tag>
+      <pcp/>
+      <descr>{{ vlan.name }}</descr>
+      <vlanif>{{ vlan.interface.name }}</vlanif>
+    </vlan>
+  {% endfor %}
+  </vlans>
+  <dhcpd>
+{% for interface in interfaces|sort(attribute="id") %}
+{%   if interface.ip_addresses %}
+    <{{ interface_name_to_opnsense_if_name_map[interface.name] }}>
+      <enable>{{ 1 if interface.enabled else 0 }}</enable>
+      <ddnsdomainalgorithm>hmac-md5</ddnsdomainalgorithm>
+      <numberoptions>
+        <item/>
+      </numberoptions>
+      <range>
+        <from>{{ interface.ip_addresses[0].address | ansible.netcommon.ipaddr( 30) | ansible.netcommon.ipaddr('address') }}</from>
+        <to>{{   interface.ip_addresses[0].address | ansible.netcommon.ipaddr(-11) | ansible.netcommon.ipaddr('address') }}</to>
+      </range>
+      <winsserver/>
+      <dnsserver/>
+      <ntpserver/>
+      {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/dhcpd/" + interface_name_to_opnsense_if_name_map[interface.name] + "/staticmap") }}
+    </{{ interface_name_to_opnsense_if_name_map[interface.name] }}>
+  {% endif %}
+{% endfor %}
+  </dhcpd>
   <unbound>
     <enable>on</enable>
   </unbound>
@@ -308,7 +402,7 @@
     <rule>
       <type>pass</type>
       <ipprotocol>inet</ipprotocol>
-      <descr>Default allow LAN to any rule</descr>
+      {{ print_rule_ansible_managed("Default allow LAN to any rule.") | indent(6) }}
       <interface>lan</interface>
       <source>
         <network>lan</network>
@@ -317,19 +411,9 @@
         <any/>
       </destination>
     </rule>
-    <rule>
-      <type>pass</type>
-      <ipprotocol>inet6</ipprotocol>
-      <descr>Default allow LAN IPv6 to any rule</descr>
-      <interface>lan</interface>
-      <source>
-        <network>lan</network>
-      </source>
-      <destination>
-        <any/>
-      </destination>
-    </rule>
+    {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/filter/rule[not(contains(descr, 'Ansible managed.'))]") }}
   </filter>
+  {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/nat") }}
   <rrd>
     <enable/>
   </rrd>
@@ -379,15 +463,8 @@
   <ntpd>
     <prefer>0.opnsense.pool.ntp.org</prefer>
   </ntpd>
-  <widgets>
-    <sequence>system_information-container:00000000-col3:show,services_status-container:00000001-col4:show,gateways-container:00000002-col4:show,interface_list-container:00000003-col4:show</sequence>
-    <column_count>2</column_count>
-  </widgets>
-  <revision>
-    <username>root@172.29.1.50</username>
-    <time>1611012531.7594</time>
-    <description>/wizard.php made changes</description>
-  </revision>
+  {{ lookup("xmlfile", local_config_path_leader, xpath="//opnsense/widgets") }}
+  {{ lookup("xmlfile", local_config_path_leader, xpath="//opnsense/revision") }}
   <OPNsense>
     <Firewall>
       <Alias version="1.0.0">
@@ -758,18 +835,56 @@
         <dotservers/>
       </miscellaneous>
     </unboundplus>
+    <wireguard>
+      <server version="0.0.2">
+      {# Integrate with https://github.com/ypid/ansible-wireguard/tree/prepare-for-debops #}
+      {% if wireguard_remote_directory|d() %}
+        {{ lookup("xmlfile", wireguard_remote_directory + "/" + wireguard_interface + "_server.xml", xpath=".") }}
+      {% endif %}
+      </server>
+      <general version="0.0.1">
+        <enabled>1</enabled>
+      </general>
+      <client version="0.0.5">
+      {% if wireguard_remote_directory|d() %}
+        {{ lookup("xmlfile", wireguard_remote_directory + "/" + wireguard_interface + "_client.xml", xpath=".") }}
+      {% endif %}
+      </client>
+    </wireguard>
   </OPNsense>
-  <ca/>
   <gateways>
     <gateway_item/>
   </gateways>
-  <cert>
-    <refid>60061767b5b36</refid>
-    <descr>Web GUI SSL certificate</descr>
-    <crt>LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUdYVENDQkVXZ0F3SUJBZ0lVYm9ZdWRwY0ZqQkkxaVFBcXEvc0cxM25kNUNrd0RRWUpLb1pJaHZjTkFRRUwKQlFBd1RqRUxNQWtHQTFVRUJoTUNUa3d4RlRBVEJnTlZCQWdNREZwMWFXUXRTRzlzYkdGdVpERVZNQk1HQTFVRQpCd3dNVFdsa1pHVnNhR0Z5Ym1sek1SRXdEd1lEVlFRS0RBaFBVRTV6Wlc1elpUQWVGdzB5TVRBeE1UZ3lNekU1Ck1EUmFGdzB5TXpBME1qTXlNekU1TURSYU1FNHhDekFKQmdOVkJBWVRBazVNTVJVd0V3WURWUVFJREF4YWRXbGsKTFVodmJHeGhibVF4RlRBVEJnTlZCQWNNREUxcFpHUmxiR2hoY201cGN6RVJNQThHQTFVRUNnd0lUMUJPYzJWdQpjMlV3Z2dJaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQ0R3QXdnZ0lLQW9JQ0FRRHNUcTFkaHcxQ2RTVnFzZzJwCkYxa3p5MmJFY0Q3VnRqVWszd0owdGMvZXdHRjRRcDRJWTRMei9YWVEzUHhpS2laWG1LQ2pIeXhEaWllL2xKbGkKdXpnY1FzOG1YZ1ZnQ1c4UDF4cFRpRVdsS3JoWk9ER1p6a1h6cy9rMzUyQkNGeVhHOFJ4NXZ3ZWtpQ3ZxbGQvMQpNcGF3Y090TmVQMlp0Y2NLaDBTVElmV1NHaGN2YnRiMWtLWGNRSThnQWtRNzlKYmdHMUpROTVEbTN4aklXcUFMCk1vWHB1cktIYXQ0czRvS2RtMjRuU3d4ZkRDelc3QnBxZ25IZmFxb2d1ZWw4YlM4QXA1dWNuUEF6MnNGNTFoS1AKRXRQeVoxN2hrNllQeENqVC9Vak9oZDRtL1hMaDFRaXNDVUVqQlNUZkFpNm84OGxwTDV2TzAxQWdUUVpsQXd2TQpnYTF6MzJuQ3FCSFhONFU0VXp5RHl6bkw1WXRNbzJqcTBkVEFwa3EwUUJNNWQyNG0xK3hnR3B2WEhKclU4VWxxCmF4SzFObXJVTllZdjFJZGdPYTBTRktoMXM0c2U1MHlSbEJOaFVBK01BVFpiVlFwdUJET1h3WGZ6ejAvUXNjMFAKK3loK2pSZTBWUWpCMWwyUzBVOTRzd1VtMDFua3hRY21Zb2JlWEJDTUhET2NrRWZuS00wa3ZaeHFmSERXOWtaLwpVT2tYWXA2OXpTZkV1K09zQVE5aDlENzRXT0lJeDFPYXg4Zy8xd0laWlBlajVCQjNaanhtcEc1N1RzNU5jWDJlCmN3enVkYkxGaHcrK3lOVUVGMGZNVk9hcmJpTUxTTzVFOWNFdDBZUFdkT0xtMlVpaEdDME8vN2hXeVZxTmdqU1AKZzg0dVorYy92T1doV0ZBZDBxdWUvR3Nvc3dJREFRQUJvNElCTVRDQ0FTMHdDUVlEVlIwVEJBSXdBREFSQmdsZwpoa2dCaHZoQ0FRRUVCQU1DQmtBd05BWUpZSVpJQVliNFFnRU5CQ2NXSlU5UVRuTmxibk5sSUVkbGJtVnlZWFJsClpDQlRaWEoyWlhJZ1EyVnlkR2xtYVdOaGRHVXdIUVlEVlIwT0JCWUVGQ1BHYXNFZy81a3dialNtdnBnODdmZGIKZTBLNU1JR0xCZ05WSFNNRWdZTXdnWUNBRkNQR2FzRWcvNWt3YmpTbXZwZzg3ZmRiZTBLNW9WS2tVREJPTVFzdwpDUVlEVlFRR0V3Sk9UREVWTUJNR0ExVUVDQXdNV25WcFpDMUliMnhzWVc1a01SVXdFd1lEVlFRSERBeE5hV1JrClpXeG9ZWEp1YVhNeEVUQVBCZ05WQkFvTUNFOVFUbk5sYm5ObGdoUnVoaTUybHdXTUVqV0pBQ3FyK3diWGVkM2sKS1RBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSUFnSXdDd1lEVlIwUEJBUURBZ1dnTUEwRwpDU3FHU0liM0RRRUJDd1VBQTRJQ0FRQ1pOcGlrNE5yZXNJcWoyOXBUZzFaVDRqcDloN1RoVEVidG5kYUoweWJ5ClJDK0FPUlJhVXNPRmF1cDdDcExtNVZoVkN1cXRYZmVGbEIwUDZheHNNZFZ2eXBDdFlMenVJeWs0Z3lhVHBrem4KYVJyNlFQK0xTVGkrVzdtQ3N1ZGV4dWNRU1cvaENEMDdzOWd5MWZmOTRUVlZhTHBpYlhvdG8yWDJSMDlQTXkzUgozVnQ2YnZYUSs0NHl3R3Q5d2ZralV5S0w2RXBWUHBxdURiU2FjVGxpdWtLSVJtbFNjM1huR0k0UjVINXpybWxLCjVOZUdkQmI0NzEwcCt6QXlpMytEVkJWdGtwSWJsaVZBTC9OTEg1WWlIZzNBckVxSWtxK0FUb3BZdU9CVHY2S1IKdFdtTXFkUzlxa2xBRzYwdHpob0lZc2V5V1E0aWd4VmJrSFE4cVpPRG1OU3pISTJ1c0lMYkxIaFIvUFIxTkR1awpIeHRoNHRmbklXaFc4aU1lbk9Wd0FFaXhVZnZ1ZVRNc29hUGRzNVgwY1drbFhhZ04vSTFVdGdRc3k3ZExsS01iCjRDT1FrZVYwVEplcDYxZlBCRFNkbXUxeDRncDh0ZUkzcnFIelI0QWlBNkszR2pLSEwxMk1Rdlg5ZGRmeU9wZjgKckVpN3A4WFlqaWZuMS92RWhJdkwvODVGRklPVThvbThHRDk0ZWZTYy9JSjNIb2xReFk2NFR4VkI0clRCWmlqbApuQTF2QUd5SUlmMDBxTzRGZkY5c3J0cElLV3llYXZ1UzJDc0JIellLSktJR0tmbXNubzZlb3lHc2Y2SVlyNnM2ClRnZm94VVdSZGdXRmlkUjc2SFVUVzRaTHc3WjJQQ1FLVmJsQUt3cEM2M2E4bW5KSkIwWEl3MkZERFJaMXk1UkYKWkE9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==</crt>
-    <prv>LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUpRZ0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQ1N3d2dna29BZ0VBQW9JQ0FRRHNUcTFkaHcxQ2RTVnEKc2cycEYxa3p5MmJFY0Q3VnRqVWszd0owdGMvZXdHRjRRcDRJWTRMei9YWVEzUHhpS2laWG1LQ2pIeXhEaWllLwpsSmxpdXpnY1FzOG1YZ1ZnQ1c4UDF4cFRpRVdsS3JoWk9ER1p6a1h6cy9rMzUyQkNGeVhHOFJ4NXZ3ZWtpQ3ZxCmxkLzFNcGF3Y090TmVQMlp0Y2NLaDBTVElmV1NHaGN2YnRiMWtLWGNRSThnQWtRNzlKYmdHMUpROTVEbTN4akkKV3FBTE1vWHB1cktIYXQ0czRvS2RtMjRuU3d4ZkRDelc3QnBxZ25IZmFxb2d1ZWw4YlM4QXA1dWNuUEF6MnNGNQoxaEtQRXRQeVoxN2hrNllQeENqVC9Vak9oZDRtL1hMaDFRaXNDVUVqQlNUZkFpNm84OGxwTDV2TzAxQWdUUVpsCkF3dk1nYTF6MzJuQ3FCSFhONFU0VXp5RHl6bkw1WXRNbzJqcTBkVEFwa3EwUUJNNWQyNG0xK3hnR3B2WEhKclUKOFVscWF4SzFObXJVTllZdjFJZGdPYTBTRktoMXM0c2U1MHlSbEJOaFVBK01BVFpiVlFwdUJET1h3WGZ6ejAvUQpzYzBQK3loK2pSZTBWUWpCMWwyUzBVOTRzd1VtMDFua3hRY21Zb2JlWEJDTUhET2NrRWZuS00wa3ZaeHFmSERXCjlrWi9VT2tYWXA2OXpTZkV1K09zQVE5aDlENzRXT0lJeDFPYXg4Zy8xd0laWlBlajVCQjNaanhtcEc1N1RzNU4KY1gyZWN3enVkYkxGaHcrK3lOVUVGMGZNVk9hcmJpTUxTTzVFOWNFdDBZUFdkT0xtMlVpaEdDME8vN2hXeVZxTgpnalNQZzg0dVorYy92T1doV0ZBZDBxdWUvR3Nvc3dJREFRQUJBb0lDQUR4d1d4TUN5YmRuc3V3NUlobFBhWGMvCjNNYjlWblRlcDNVSXZONFE2bHUwcExsWGdJZnd1N3VmNWlTbUFMOHl2Si9HMzc4WTUvOVdSSmhSYjNHN0pMekYKc2FuRWZtZHp3ajR3N0FEVlo4cTR4SEc5VjZKWkNiY3RIdDdYaE4waWduMEJpaUR4WlFrRjh3V0swNzhvOHpXcAppK1ZDdnNvam5nYnBWZmF6eHRWWmF2aXN4cm9FQndmd1V5c0NxV1VVUjhxRjhtWFhDKzZndlB2eGdlR2JTSGpoClVXd2xQeklIdFJTT2ZudjZTKzI3ZFhSNjZyNjNJbHpjTVNzeG9iQTdWTHc4SWliS1ZQMU9SQkhmV052VEd2WnkKemVld0ZkY09lc3JOaTJPWEJaeS9ValRFZ2ZWT1lLU09Xa0hYa3d1UFhzSlNkTzFQU3IwWU5qeDdyUGJmYS9jcgpINFRTekRvdktpUEhiakdHcU9FYmZ6eXlabFJLOGpENmNFUko0SUphQ1BuczNicXF1QWZqL2IvN09uMldaNnBvCktVK1VMQzNkWFpOKzdLbjFaQmxlUFV1aWlGRTRDSDFJTml3Z0dMdGg0VzRGOVh3YjBqVFNWQkhrRVFiN2s4T0MKOVB6cVl4c3ZLUnQ1SisxVEVPZzJtK054MVZVZWZWWStweUxJZDd1RzhRQUN1aDJYNXpobTU5SDcveU9KUDZyNApLSTZnc3NMekIyVmtRamt1WHVMM2VEQ2phWkFmSTYzTWxvYWFnNXlkbXhoRndabkxscGw2TE5uMUFkSDFOT1ZaCmRBR0tHdmt3Tks5VStlRk9uSTJHY1U1YzYzKzJOZ2JoQTJXYis4S1lNRkp5M05KenVUVXNkWVdRbVVnVzczTTcKNEJUd2RxbXZkRkFlN2NLbWw0ZUJBb0lCQVFEOGJCTnRYSHVHVXc1dnJSZDVUblZPS2Fla2ZOWGJ5S29vT2U1SQpFYUxoUXQ4T1dVN1lsbTR2YU4xV2pXd3lVTFVEblBpaXIyMUZreS9pZ0p1Y0JtMFRLZjZCNUY2M0ZhVXF1VndIClZ1bnVlL3pDWTBqL3JuSEZsZWNNL2N3UU1xMmJtZGdqOUFnaWhJUU11bGo1OVo1KzBiTnpmL0Q5SXl3MHF3MVUKYkZBc3lWeis4UjluS2d1MEtONlRNYjNPZm1aZ2o4czJWZWJjTFU4RzRLR3dmYXNkbmJoUml1R21EQmVCM3NHbgpUbDJJU1dFbEhaeEhjUVErb1k4Y04wU0Q3ejBHYVpBZ1FhUmp5b21BcTRPZEMyVzVCeTVOZFA0VU1xcksvbjg2Cm9WbkNZZVZKSHYwdWRGQlJiNGNwRU16U0NTTGFFeGRNeTZvRU5ETHJkVUFoRWEyVEFvSUJBUUR2cUNEQzVNOS8KcFlUTVdLUU5Wc1VCdkIzZWQ2bko3clJYUVFZVXhJWlVCS3Y2YzhRQWhYb1h1RDZqUjZJMHBVYWJvODBDNmNvRQp0dWJmR1FYQ0g3OFpURXZzLzQzcDB4cXNPNk51NFBLWkNRMTVtTTVMVEJSSDEzb214QW9HZUZtZldRWkRHak1WCjNQMEVYc2JLV0lRbkkrR1JxVkFvREN3bTR2dmVqckswZmdsVDQwa2wzZ21tbGhkc2dKNVF1MVBnelVOa2pUVFAKRnllZXRKUVdUWHZ1QjkwUTY2Uy9ValpSZDdpZFYwMzU2ajhVbGxJdUVRZEJjSFhaNzdYTWJ4NUs4bW9QV0pzdgpwbFAwSnZTTzlXTHNrUDMzdjlPck1LajZOUGR5Y0Q3OFo1QmE5cWJldmN1c2dhU3BuUk5zR2xzRE9ZWjZmaTdUCjJYVWgxS0hPaEl4aEFvSUJBUUN2OE9UWnBVeTBJOUE4SnZubG83by84T2pZemVxQ2R5dWpQajNJSGdMWjRESjUKWGVhSE1OTThXR3R1bU1TQmpaK2VGUnQ0eWEzd2dOY3ZtVlRkTzkxckxpb25mM1pGUnVFSkZvbiswNlhhaExGNQpESnNsSEFKUkpsc1Z3eEVwZVNsbys2S2I3TXgrd3I4SDRCdUVucDhLNWorZWtkNzNranlOdVd4aEc5NEdXWlJvClhzajByMm5ZK1dPcVZWRm5UTk12R3dzWnBHWjFzVjhUL0I2M1ZlQ2ZrLytWVnFoUmhMd2QyWlpCZDIzYVFNdGwKZzI0YW5idkhxL1NFUmtHTGRJV2tvby9DNi80WlVHTG5QS1ZRSVZHVjFsdC93YndYZC9sejVFL3FIZXppZ0RuQQo3Y2lyU0lkek83bUo5aHZOaW5Dd2IvNGRtUmU0Tm1vSGxJSk9pblBoQW9JQkFEb09QSUY1OUZvenVvdldIVWV0CjhXT09NcDRsMXRlNEg2L1RiS216UWVjd2lvak5hbm5GMitITEhFRnBwUDJqM0Fyd0QwWFpaTHJubzkzL3JjbHMKNzFvdGhXY1FNVXluZXhxbUI5MWdXT1NCc09YNEFtRnpPS1orcUhTam9Ob1laWDJZajAvS0ZQNEMzcmdrVFh2UApIWlJ0dU1NVWhQcHVtSE9ESVFpMUFNMkFpcm5yb1ZpdkJSOTUxSXJRVFltNUY0U3B0TjJ5NTB3VGkrR0NWUzFoCjc5ZWx5QVBGVWMrWEZ0bDlheGVTZ3EwNzliUURCajFxbXB0YnB2RDRoTTNWVFQxU3BDYTdqRHhxeW9PbXZDKzEKZWhWY3Vtazk2d1RaY05YTDV2V3VBMVFac25xV3JhM2Z4R3N4ckxYNSt5NkE0L05RQ0NlOFVaTzRaZ3VmK3VLUQpjWUVDZ2dFQWNuRERrQXFXdlFCMHBmS2F3dHV4dHk5aklOZlE5R1FiTXNlaFlMbGZRVDV2MGJvZFlta2E0RFRpClJBdEhwMnZoYTdPR005K1B6TlFDL1JVWGdEaGhsNkFHUWdHREhkVGJVTmJGUjFDWk1WZnlJbndxODBVN2hyVmgKRHFQN2U2MkFwbEVpaFhzbUNzdWRReXE1d2xxbEJsakpvVWVDSG9Ycm1HeEU1VzR0dE9oZkxNT3BoeFl2SGE5QQo1Z25GaWtUdmoyMURKN1c0Z3BKQTFBWUY2VnNqYXZmNjJEYW5LSXR3b05MYjRJVVg5SENiYmtqc015bUhxMThlCnoyVjk4NmhJTmlSTDlwSHpQeGRINlJMdTJKWW1QUkdNRnNDWEVQUXF1NTZhZGpuWnQrSFcraytpcUZhZEhDZEMKcXhhYlJYRk56aEJtL294OUY3UjhUcGJCckVNZnJnPT0KLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=</prv>
-  </cert>
-  <staticroutes/>
+  {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/ca") }}
+  {{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/cert") }}
+  <staticroutes version="1.0.0">
+    {% if opnsense_blackhole_private_nets|d()|bool %}
+    <route uuid="f9b58ccb-e871-4484-b048-917a954ad31f">
+      <network>192.168.0.0/16</network>
+      <gateway>Null4</gateway>
+      <descr>Blackhole RFC 1918.</descr>
+      <disabled>0</disabled>
+    </route>
+    <route uuid="72a22cc3-3719-4edb-8f05-16322f99b421">
+      <network>172.16.0.0/12</network>
+      <gateway>Null4</gateway>
+      <descr>Blackhole RFC 1918.</descr>
+      <disabled>0</disabled>
+    </route>
+    <route uuid="2825cd5b-f516-41dd-9175-93881dcef9ca">
+      <network>10.0.0.0/8</network>
+      <gateway>Null4</gateway>
+      <descr>Blackhole RFC 1918.</descr>
+      <disabled>0</disabled>
+    </route>
+    <route uuid="6aa58d7b-6c7f-44ec-a52f-af9daad8495b">
+      <network>169.254.0.0/16</network>
+      <gateway>Null4</gateway>
+      <descr>Blackhole private IPv4 ARPA.</descr>
+      <disabled>0</disabled>
+    </route>
+    {% endif %}
+  </staticroutes>
   <ppps>
     <ppp/>
   </ppps>

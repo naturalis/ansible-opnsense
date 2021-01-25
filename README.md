@@ -16,9 +16,7 @@ An example: https://github.com/naturalis/oss-network-demo/tree/master/ansible/ba
 Dependencies
 ------------
 
-    sudo pip install lxml
-    sudo pip3 install lxml
-    sudo apt install secure-delete
+    sudo apt install python3-lxml python3-defusedxml secure-delete
     
 Example Playbook
 ----------------
@@ -50,3 +48,4 @@ Author Information
 - Rudi Broekhuizen - rudi.broekhuizen@naturalis.nl
 - Privazio - hello@privaz.io - https://github.com/privazio
 - Foppe Pieters - foppe.pieters@naturalis.nl
+- Robin Schneider - ypid@riseup.net

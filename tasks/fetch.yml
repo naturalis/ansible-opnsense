@@ -1,7 +1,31 @@
 ---
+
+- name: Ensure the file is writable
+  file:
+    state: 'touch'
+    path: "{{ local_config_path_fetch }}"
+    mode: '0644'
+  changed_when: False
+  delegate_to: localhost
+
 - name: fetch
   fetch:
     src: /conf/config.xml
-    dest: "{{ local_config_path }}"
+    dest: "{{ local_config_path_fetch }}"
     flat: yes
+
+- name: Set the device file to read only to prevent template authors from accidentally writing the template in their
+  file:
+    path: "{{ local_config_path_fetch }}"
+    mode: '0444'
+  changed_when: False
+  delegate_to: localhost
+
+- name: Copy device config to editable copy for xml_patch mode
+  copy:
+    src: "{{ local_config_path_fetch }}"
+    dest: "{{ local_config_path }}"
+  register: config
+  delegate_to: localhost
+  when: opnsense_mode == 'xml_template'
 ...
