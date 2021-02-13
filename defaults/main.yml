@@ -9,6 +9,9 @@ local_config_path_fetch: /tmp/config-{{ inventory_hostname }}.xml
 # Local path for the config.
 local_config_path: /tmp/config-{{ inventory_hostname }}.xml
 
+# Secure remove local config?
+opnsense_local_config_path_secure_remove: True
+
 # `xml_patch` and `xml_template` are supported.
 opnsense_mode: 'xml_patch'
 

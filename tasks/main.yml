@@ -156,6 +156,7 @@
   delegate_to: localhost
   shell: srm "{{ local_config_path }}"
   tags: clean
+  when: (opnsense_local_config_path_secure_remove|bool)
 
   # Reload services last as that might kill the ssh connection.
 - name: reload
