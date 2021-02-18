@@ -22,6 +22,10 @@
   when: opnsense_mode == 'xml_patch'
   tags: dnsserver
 
+- name: dnsmasq
+  include: dnsmasq.yml
+  tags: dnsmasq
+
 - name: user
   include: user.yml
   when: opnsense_mode == 'xml_patch'

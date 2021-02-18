@@ -1,0 +1,6 @@
+{# Copyright (C) 2021 Robin Schneider <ypid@riseup.net>
+ # SPDX-License-Identifier: Apache-2.0
+ #}
+# {{ ansible_managed }}
+
+{{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/dnsmasq/custom_options/text()") }}

@@ -1,0 +1,6 @@
+---
+# Copyright (C) 2021 Robin Schneider <ypid@riseup.net>
+# SPDX-License-Identifier: Apache-2.0
+
+- name: Restart dns subsystem
+  command: pluginctl dns
