@@ -7,6 +7,7 @@
     validate: |-
       bash -c 'dnsmasq --test --conf-dir "$(dirname "%s")"'
   when: (lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/dnsmasq/custom_options") != '')
+  notify: [ 'Restart dns subsystem' ]
 
 - name: Remove dnsmasq advanced settings
   file:
