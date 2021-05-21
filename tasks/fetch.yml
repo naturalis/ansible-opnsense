@@ -1,9 +1,16 @@
 ---
 
-- name: Ensure the file is writable
+- name: Ensure directory to store local config file exists
+  file:
+    state: 'directory'
+    path: '{{ local_config_path_fetch | dirname }}'
+    mode: '0750'
+  delegate_to: localhost
+
+- name: Ensure local config file writable
   file:
     state: 'touch'
-    path: "{{ local_config_path_fetch }}"
+    path: '{{ local_config_path_fetch }}'
     mode: '0644'
   changed_when: False
   delegate_to: localhost
