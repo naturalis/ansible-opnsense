@@ -4,3 +4,24 @@
 
 - name: Restart dns subsystem
   command: pluginctl dns
+
+- name: Restart webgui
+  command: configctl webgui restart
+
+- name: Sync filter
+  command: configctl filter sync
+
+- name: Reload all services
+  command: configctl service reload all
+
+- name: Restart WireGuard
+  command: configctl wireguard restart
+  when: (lookup("xmlfile", local_config_path_fetch, xpath="opnsense/OPNsense/wireguard") !=
+         lookup("xmlfile", local_config_path, xpath="opnsense/OPNsense/wireguard"))
+
+- name: Restart snmpd
+  service:
+    name: 'snmpd'
+    state: 'restarted'
+  when: (lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/OPNsense/netsnmp") !=
+         lookup("xmlfile", local_config_path, xpath="//opnsense/OPNsense/netsnmp"))

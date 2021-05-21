@@ -30,7 +30,7 @@
   include: user.yml
   when: opnsense_mode == 'xml_patch'
   tags: user
-  
+
 - name: group
   include: group.yml
   when: opnsense_mode == 'xml_patch'
@@ -74,7 +74,7 @@
   include: bridges.yml
   when: opnsense_mode == 'xml_patch'
   tags: bridges
-  
+
 - name: virtualip
   include: virtualip.yml
   when: opnsense_mode == 'xml_patch'
@@ -89,12 +89,12 @@
   include: filter.yml
   when: opnsense_mode == 'xml_patch'
   tags: filter
-  
+
 - name: gateways
   include: gateways.yml
   when: opnsense_mode == 'xml_patch'
   #when: prod | default([])
-  tags: gateways 
+  tags: gateways
 
 - name: hasync
   include: hasync.yml
@@ -154,6 +154,12 @@
     dest: "{{ config_path }}"
     backup: yes
   register: config
+  notify:
+    - 'Restart webgui'
+    - 'Sync filter'
+    - 'Reload all services'
+    - 'Restart WireGuard'
+    - 'Restart snmpd'
   tags: copy
 
 - name: clean,safe delete
@@ -163,24 +169,8 @@
   when: (opnsense_local_config_path_secure_remove|bool)
 
   # Reload services last as that might kill the ssh connection.
-- name: reload
-  command: "{{ item.command }}"
-  when: (item.when|bool)
-  with_items:
-    - command: configctl filter sync
-      when: '{{ config is changed }}'
-
-    - command: configctl webgui restart
-      when: '{{ config is changed }}'
-
-    - command: configctl service reload all
-      when: '{{ config is changed }}'
-
-    - command: configctl wireguard restart
-      when: '{{ config is changed and
-                lookup("xmlfile", local_config_path_fetch, xpath="opnsense/OPNsense/wireguard") !=
-                lookup("xmlfile", local_config_path, xpath="opnsense/OPNsense/wireguard") }}'
-  tags: reload
+- name: Execute pending handlers
+  meta: 'flush_handlers'
 
 - name: copy
   copy:
