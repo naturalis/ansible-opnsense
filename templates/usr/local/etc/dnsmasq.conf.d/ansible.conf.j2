@@ -3,4 +3,4 @@
  #}
 # {{ ansible_managed }}
 
-{{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/dnsmasq/custom_options/text()") }}
+{{ lookup("xmlfile", local_config_path, xpath="//opnsense/dnsmasq/custom_options/text()") }}
