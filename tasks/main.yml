@@ -187,4 +187,20 @@
   register: config
   delegate_to: localhost
   tags: copy
+
+# TODO: Does not work with OPNsense 21.1.5? Returns {"status":"failed"}.
+# - name: Reconfigure and restart SNMP agent
+#   uri:
+#     url: '{{ "https://localhost:" + (config_context.webui_port|d("443")|string) + "/api/netsnmp/service/reconfigure" }}'
+#     validate_certs: False
+#     user: '{{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/user/apikeys/item/key/text()") }}'
+#     password: '{{ opnsense__api_secret }}'
+#     force_basic_auth: True
+#   register: opnsense__register_uri_snmp_reconfigure
+#   tags: test
+
+# - debug:
+#     var: opnsense__register_uri_snmp_reconfigure
+#   tags: test
+
 ...
