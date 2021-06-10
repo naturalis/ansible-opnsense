@@ -4,24 +4,49 @@
 #    url: https://raw.githubusercontent.com/opnsense/core/master/src/etc/config.xml.sample
 #    dest: /tmp/config.xml
 
+- name: Import DebOps secret role
+  import_role:
+    name: 'secret'
+
 - name: fetch
   include: fetch.yml
   tags: fetch
 
+- name: template
+  template:
+    src: '{{ opnsense_template }}'
+    dest: '{{ local_config_path }}'
+    validate: 'xmllint --noout %s'
+  delegate_to: localhost
+  when: opnsense_mode == 'xml_template'
+  tags: template
+
+- name: packages
+  include: packages.yml
+  tags: packages
+
 - name: dnsserver
   include: dnsserver.yml
+  when: opnsense_mode == 'xml_patch'
   tags: dnsserver
+
+- name: dnsmasq
+  include: dnsmasq.yml
+  tags: dnsmasq
 
 - name: user
   include: user.yml
+  when: opnsense_mode == 'xml_patch'
   tags: user
-  
+
 - name: group
   include: group.yml
+  when: opnsense_mode == 'xml_patch'
   tags: group
 
 - name: general
   include: general.yml
+  when: opnsense_mode == 'xml_patch'
   tags: general
 
 #- name: sysctl
@@ -30,68 +55,83 @@
 
 - name: authservers
   include: authservers.yml
+  when: opnsense_mode == 'xml_patch'
   tags: authservers
 
 - name: CAs
   include: ca.yml
+  when: opnsense_mode == 'xml_patch'
   tags: ca
 
 - name: VPN
   include: vpn.yml
+  when: opnsense_mode == 'xml_patch'
   tags: vpn
 
 - name: interfaces
   include: interfaces.yml
+  when: opnsense_mode == 'xml_patch'
   tags: interfaces
 
 - name: vlans
   include: vlans.yml
+  when: opnsense_mode == 'xml_patch' and opn_interfaces_vlan_parent_interface is defined
   tags: vlans
-  when: opn_interfaces_vlan_parent_interface is defined
 
 - name: bridges
   include: bridges.yml
+  when: opnsense_mode == 'xml_patch'
   tags: bridges
-  
+
 - name: virtualip
   include: virtualip.yml
+  when: opnsense_mode == 'xml_patch'
   tags: virtualip
 
 - name: alias
   include: alias.yml
+  when: opnsense_mode == 'xml_patch'
   tags: alias
 
 - name: filter
   include: filter.yml
+  when: opnsense_mode == 'xml_patch'
   tags: filter
-  
+
 - name: gateways
   include: gateways.yml
+  when: opnsense_mode == 'xml_patch'
   #when: prod | default([])
-  tags: gateways 
+  tags: gateways
 
 - name: hasync
   include: hasync.yml
+  when: opnsense_mode == 'xml_patch'
   tags: hasync
 
 - name: dhcpd
   include: dhcpd.yml
+  when: opnsense_mode == 'xml_patch'
   tags: dhcpd
 
 - name: syslog
   include: syslog.yml
+  when: opnsense_mode == 'xml_patch'
   tags: syslog
 
 - name: staticroutes
   include: staticroutes.yml
+  when: opnsense_mode == 'xml_patch'
   tags: staticroutes
 
 - name: nat
   include: nat.yml
+  when: opnsense_mode == 'xml_patch'
   tags: nat
 
 - name: laggs
   include: laggs.yml
+  when: opnsense_mode == 'xml_patch'
   tags: laggs
 
 - name: trim EOF
@@ -102,6 +142,7 @@
     line: ""
     path: "{{ local_config_path }}"
   changed_when: false
+  when: opnsense_mode == 'xml_patch'
   tags: trim
 
 - name: fix xml start tag
@@ -112,6 +153,7 @@
     insertbefore: BOF
     path: "{{ local_config_path }}"
   changed_when: false
+  when: opnsense_mode == 'xml_patch'
   tags: trim
 
 - name: copy
@@ -120,19 +162,45 @@
     dest: "{{ config_path }}"
     backup: yes
   register: config
+  notify:
+    - 'Restart webgui'
+    - 'Sync filter'
+    - 'Reload all services'
+    - 'Restart WireGuard'
+    - 'Restart snmpd'
   tags: copy
 
 - name: clean,safe delete
   delegate_to: localhost
   shell: srm "{{ local_config_path }}"
   tags: clean
+  when: (opnsense_local_config_path_secure_remove|bool)
 
-- name: reload
-  command: "{{ item }}"
-  with_items:
-    - configctl filter sync
-    - configctl service reload all
-    - configctl webgui restart
-  when: config.changed
-  tags: reload
+  # Reload services last as that might kill the ssh connection.
+- name: Execute pending handlers
+  meta: 'flush_handlers'
+
+- name: copy
+  copy:
+    src: "{{ local_config_path }}"
+    dest: "{{ local_config_path_fetch }}"
+  register: config
+  delegate_to: localhost
+  tags: copy
+
+# TODO: Does not work with OPNsense 21.1.5? Returns {"status":"failed"}.
+# - name: Reconfigure and restart SNMP agent
+#   uri:
+#     url: '{{ "https://localhost:" + (config_context.webui_port|d("443")|string) + "/api/netsnmp/service/reconfigure" }}'
+#     validate_certs: False
+#     user: '{{ lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/user/apikeys/item/key/text()") }}'
+#     password: '{{ opnsense__api_secret }}'
+#     force_basic_auth: True
+#   register: opnsense__register_uri_snmp_reconfigure
+#   tags: test
+
+# - debug:
+#     var: opnsense__register_uri_snmp_reconfigure
+#   tags: test
+
 ...

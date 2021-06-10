@@ -1,7 +1,30 @@
 ---
 
-# remote path of the config
+# Remote path of the config.
 config_path: /conf/config.xml
 
-# local path for the config
+# Where the unalerted device config gets fetched to. Not changed within one role run.
+local_config_path_fetch: /tmp/config-{{ inventory_hostname }}.xml
+
+# Local path for the config.
 local_config_path: /tmp/config-{{ inventory_hostname }}.xml
+
+# Secure remove local config?
+opnsense_local_config_path_secure_remove: True
+
+# `xml_patch` and `xml_template` are supported.
+opnsense_mode: 'xml_patch'
+
+# The config.xml template to use when in `xml_template` mode.
+opnsense_template: 'conf/config_netbox.xml.j2'
+
+# Packages to install by default. This list is merged with the packages of the
+# device and included in the config.
+opnsense_packages: []
+
+opnsense_all_packages: '{{ (opnsense_packages + (lookup("xmlfile", local_config_path_fetch, xpath="//opnsense/system/firmware/plugins//text()").split(","))) | sort | unique }}'
+
+# In `xml_template` mode you could have the concept of a leader Firewall from
+# which certain config parts are included into generated configuration. See
+# ../templates/conf/config_netbox.xml.j2.
+local_config_path_leader: '{{ (inventory_dir + "/../..") | realpath }}/opnsense/leader-fw.example.net/config_device.xml'

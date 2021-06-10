@@ -1,0 +1,6 @@
+---
+
+- name: package - Install
+  package:
+    name: '{{ opnsense_all_packages }}'
+    state: 'present'
